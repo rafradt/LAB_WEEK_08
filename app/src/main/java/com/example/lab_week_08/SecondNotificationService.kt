@@ -1,5 +1,6 @@
 package com.example.lab_week_08
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -21,7 +22,8 @@ class SecondNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(200, buildNotification("Starting..."))
+        // Corrected line: Call .build() to get the Notification object
+        startForeground(200, buildNotification("Starting...").build())
 
         handler.post {
             countdown()
