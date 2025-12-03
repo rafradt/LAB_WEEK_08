@@ -10,13 +10,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.work.Constraints
-import androidx.work.Data
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkManager
+import androidx.work.*
 import com.example.lab_week_08.worker.FirstWorker
 import com.example.lab_week_08.worker.SecondWorker
+import com.example.lab_week_08.worker.ThirdWorker
 
 class MainActivity : AppCompatActivity() {
 
@@ -30,83 +27,104 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(
             findViewById(R.id.main)
         ) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
 
-        // Permission for notification
+        // 1. Permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                requestPermissions(
-                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1
-                )
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
             }
         }
 
-        // Worker constraints
-        val networkConstraints = Constraints.Builder()
+        // 2. Worker constraints
+        val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val id = "001"
 
+        // 3. Build workers
         val firstRequest = OneTimeWorkRequest.Builder(FirstWorker::class.java)
-            .setConstraints(networkConstraints)
-            .setInputData(getIdInputData(FirstWorker.INPUT_DATA_ID, id))
+            .setConstraints(constraints)
+            .setInputData(input("001"))
             .build()
 
         val secondRequest = OneTimeWorkRequest.Builder(SecondWorker::class.java)
-            .setConstraints(networkConstraints)
-            .setInputData(getIdInputData(SecondWorker.INPUT_DATA_ID, id))
+            .setConstraints(constraints)
+            .setInputData(input("001"))
             .build()
 
+        val thirdRequest = OneTimeWorkRequest.Builder(ThirdWorker::class.java)
+            .setConstraints(constraints)
+            .setInputData(input("001"))
+            .build()
+
+        // 4. Chain first → second
         workManager.beginWith(firstRequest)
             .then(secondRequest)
             .enqueue()
 
-        // FIRST WORKER OBSERVER
+        // 5. First observer
         workManager.getWorkInfoByIdLiveData(firstRequest.id)
-            .observe(this) { info ->
-                if (info?.state?.isFinished == true) {
-                    showResult("First process is done")
+            .observe(this) {
+                if (it?.state?.isFinished == true) {
+                    show("First worker done")
                 }
             }
 
-        // SECOND WORKER OBSERVER — versi yang BENER
+        // 6. Second observer → start NotificationService
         workManager.getWorkInfoByIdLiveData(secondRequest.id)
-            .observe(this) { info ->
-                if (info?.state?.isFinished == true) {
-                    showResult("Second process is done")
+            .observe(this) {
+                if (it?.state?.isFinished == true) {
+                    show("Second worker done")
                     launchNotificationService()
                 }
             }
+
+        // 7. After NotificationService is done → run ThirdWorker
+        NotificationService.trackingCompletion.observe(this) {
+            if (it != null) {
+                show("NotificationService done — starting ThirdWorker")
+                workManager.enqueue(thirdRequest)
+            }
+        }
+
+        // 8. Third observer → start SecondNotificationService
+        workManager.getWorkInfoByIdLiveData(thirdRequest.id)
+            .observe(this) {
+                if (it?.state?.isFinished == true) {
+                    show("Third worker done")
+                    launchSecondNotificationService()
+                }
+            }
+
+        // 9. After SecondNotificationService done
+        SecondNotificationService.completionLiveData.observe(this) {
+            if (it == true) {
+                show("SecondNotificationService done!")
+            }
+        }
     }
 
-    private fun getIdInputData(key: String, value: String): Data =
-        Data.Builder()
-            .putString(key, value)
-            .build()
+    private fun input(value: String) =
+        Data.Builder().putString("Id", value).build()
 
-    private fun showResult(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
+    private fun show(msg: String) =
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     private fun launchNotificationService() {
-        NotificationService.trackingCompletion.observe(this) { id ->
-            showResult("Process for Notification Channel ID $id is done!")
-        }
-
-        val serviceIntent = Intent(this, NotificationService::class.java).apply {
-            putExtra(EXTRA_ID, "001")
-        }
-
-        ContextCompat.startForegroundService(this, serviceIntent)
+        val intent = Intent(this, NotificationService::class.java)
+        intent.putExtra("Id", "001")
+        ContextCompat.startForegroundService(this, intent)
     }
 
-    companion object {
-        const val EXTRA_ID = "Id"
+    private fun launchSecondNotificationService() {
+        val intent = Intent(this, SecondNotificationService::class.java)
+        ContextCompat.startForegroundService(this, intent)
     }
 }
