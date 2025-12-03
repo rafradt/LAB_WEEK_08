@@ -1,9 +1,13 @@
 package com.example.lab_week_08
 
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.work.Constraints
@@ -31,6 +35,18 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        // Permission for notification
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1
+                )
+            }
+        }
+
+        // Worker constraints
         val networkConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -51,19 +67,20 @@ class MainActivity : AppCompatActivity() {
             .then(secondRequest)
             .enqueue()
 
+        // FIRST WORKER OBSERVER
         workManager.getWorkInfoByIdLiveData(firstRequest.id)
             .observe(this) { info ->
-                // Use a safe call ?. to check if info is not null
                 if (info?.state?.isFinished == true) {
                     showResult("First process is done")
                 }
             }
 
+        // SECOND WORKER OBSERVER — versi yang BENER
         workManager.getWorkInfoByIdLiveData(secondRequest.id)
             .observe(this) { info ->
-                // Use a safe call ?. here as well
                 if (info?.state?.isFinished == true) {
                     showResult("Second process is done")
+                    launchNotificationService()
                 }
             }
     }
@@ -75,5 +92,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun showResult(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun launchNotificationService() {
+        NotificationService.trackingCompletion.observe(this) { id ->
+            showResult("Process for Notification Channel ID $id is done!")
+        }
+
+        val serviceIntent = Intent(this, NotificationService::class.java).apply {
+            putExtra(EXTRA_ID, "001")
+        }
+
+        ContextCompat.startForegroundService(this, serviceIntent)
+    }
+
+    companion object {
+        const val EXTRA_ID = "Id"
     }
 }
